@@ -3,6 +3,7 @@
 #include "enrico/comm_split.h"
 #include "enrico/driver.h"
 #include "enrico/error.h"
+#include "enrico/neutronics_driver.h"
 
 #ifdef USE_NEK5000
 #include "enrico/nek5000_driver.h"
@@ -141,6 +142,9 @@ CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
     throw std::runtime_error{"Invalid value for <neutronics><driver>"};
   }
 
+  // Instantiate boron driver
+  boron_driver_ = std::make_unique<BoronDriverOpenmc>(comm);
+
   // Instantiate heat-fluids driver
   std::string s = heat_node.child_value("driver");
   if (s == "nek5000") {
@@ -195,6 +199,7 @@ void CoupledDriver::execute()
 {
   auto& neutronics = get_neutronics_driver();
   auto& heat = get_heat_driver();
+  auto& boron = get_boron_driver();
 
   // loop over time steps
   for (i_timestep_ = 0; i_timestep_ < max_timesteps_; ++i_timestep_) {
@@ -215,6 +220,11 @@ void CoupledDriver::execute()
 
       comm_.Barrier();
 
+      // Boron Criticality search
+      if (boron.active()) {
+        boron.solve_step();
+      }
+      comm_.Barrier();
       // Update heat source.
       // On the first iteration, there is no previous iterate of heat source,
       // so we can't apply underrelaxation at that point

@@ -15,6 +15,21 @@
 
 namespace enrico {
 
+class BoronDriver : public Driver {
+public:
+  explicit BoronDriver(MPI_Comm comm)
+    : Driver(comm)
+  {}
+
+  virtual ~BoronDriver() = default;
+
+  virtual double get_boron_ppm() const = 0;
+  virtual void set_k_effective(double k_eff) const = 0;
+
+  //! Runs OpenMC for one Picard iteration
+  // void solve_step() final;
+};
+
 //! Base class for driver that controls a neutronics solve
 class NeutronicsDriver : public Driver {
 public:
@@ -28,6 +43,12 @@ public:
   //! \param power User-specified power in [W]
   //! \return Heat source in each material as [W/cm3]
   virtual xt::xtensor<double, 1> heat_source(double power) const = 0;
+
+  //! Get the k effective of a run
+  virtual double k_effective() const = 0;
+
+  //! Set the boron concentration in a cell
+  virtual void set_boron_ppm(double ppm) const = 0;
 
   //! Find cells corresponding to a vector of positions
   //! \param positions (x,y,z) coordinates to search for

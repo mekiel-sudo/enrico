@@ -6,6 +6,8 @@
 #include "openmc/capi.h"
 #include "openmc/cell.h"
 #include "openmc/constants.h"
+#include "openmc/nuclide.h"
+#include "openmc/simulation.h"
 #include "openmc/tallies/filter.h"
 #include "openmc/tallies/filter_material.h"
 #include "openmc/tallies/tally.h"
@@ -18,6 +20,12 @@
 #include <unordered_map>
 
 namespace enrico {
+
+BoronDriverOpenmc::BoronDriverOpenmc(MPI_Comm comm)
+  : BoronDriver(comm)
+{
+  MPI_Barrier(MPI_COMM_WORLD);
+}
 
 OpenmcDriver::OpenmcDriver(MPI_Comm comm)
   : NeutronicsDriver(comm)
@@ -139,6 +147,45 @@ std::vector<CellHandle> OpenmcDriver::find(const std::vector<Position>& position
   return handles;
 }
 
+void OpenmcDriver::set_boron_ppm(double ppm) const
+{
+  for (auto& mat : openmc::model::materials) {
+    auto nucs = mat->nuclides();
+    auto densities = mat->densities();
+
+    // Is there boron in this material?
+    std::vector<std::string> names;
+    std::vector<double> new_densities;
+    for (int i = 0; i < nucs.size(); i++) {
+      int nuc_index = nucs[i];
+      auto& nuclide = openmc::data::nuclides[nuc_index];
+
+      // Add nuclide name to list of names
+      names.push_back(nuclide->name_);
+
+      if (nuclide->Z_ == 5) {
+        double ppmtodens = ppm / 1000000;
+        double calcdens;
+        double MWB10;
+        double MWB11;
+        double N_a = 0.6022;
+        // Calculate density of B10 or B11 corresponding to the given ppm
+        if (nuclide->A_ == 10) {
+          calcdens = ppmtodens * (nuclide->awr_) * N_a / MWB10;
+        }
+        if (nuclide->A_ == 11) {
+          calcdens = ppmtodens * (nuclide->awr_) * N_a / MWB11;
+        }
+        new_densities.push_back(calcdens);
+      } else {
+        new_densities.push_back(densities[i]);
+      }
+    }
+
+    mat->set_densities(names, new_densities);
+  }
+}
+
 void OpenmcDriver::set_density(CellHandle cell, double rho) const
 {
   cells_.at(cell).material()->set_density(rho, "g/cm3");
@@ -189,6 +236,19 @@ gsl::index OpenmcDriver::cell_index(CellHandle cell) const
   return std::distance(cells_.cbegin(), iter);
 }
 
+double BoronDriverOpenmc::get_boron_ppm() const
+{
+  double ppm;
+  return ppm;
+}
+
+void BoronDriverOpenmc::set_k_effective(double k_eff) const {}
+
+void BoronDriverOpenmc::solve_step()
+{
+  std::cout << "hello world" << std::endl;
+}
+
 void OpenmcDriver::init_step()
 {
   err_chk(openmc_simulation_init());
@@ -197,6 +257,13 @@ void OpenmcDriver::init_step()
 void OpenmcDriver::solve_step()
 {
   err_chk(openmc_run());
+}
+
+double OpenmcDriver::k_effective() const
+{
+  double keff[2];
+  openmc_get_keff(keff);
+  return keff[0];
 }
 
 void OpenmcDriver::write_step(int timestep, int iteration)
@@ -219,4 +286,9 @@ OpenmcDriver::~OpenmcDriver()
   MPI_Barrier(MPI_COMM_WORLD);
 }
 
+BoronDriverOpenmc::~BoronDriverOpenmc()
+{
+
+  MPI_Barrier(MPI_COMM_WORLD);
+}
 } // namespace enrico

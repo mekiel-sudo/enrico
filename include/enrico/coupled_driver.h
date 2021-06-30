@@ -72,6 +72,10 @@ public:
   //! \return reference to driver
   HeatFluidsDriver& get_heat_driver() const { return *heat_fluids_driver_; }
 
+  //! Get reference to boron search driver
+  //! \return reference to driver
+  BoronDriver& get_boron_driver() const { return *boron_driver_; }
+
   //! Get timestep iteration index
   //! \return timestep iteration index
   int get_timestep_index() const { return i_timestep_; }
@@ -188,6 +192,7 @@ private:
 
   std::unique_ptr<NeutronicsDriver> neutronics_driver_;  //!< The neutronics driver
   std::unique_ptr<HeatFluidsDriver> heat_fluids_driver_; //!< The heat-fluids driver
+  std::unique_ptr<BoronDriver> boron_driver_;            //!< The boron search driver
 
   //! States whether a local cell is in the fluid region. Set only on heat/fluids ranks.
   //! Ordered the same way as cells_, cell_fluid_mask_, and cell_to_elems_

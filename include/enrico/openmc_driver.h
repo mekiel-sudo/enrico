@@ -17,6 +17,16 @@
 
 namespace enrico {
 
+class BoronDriverOpenmc : public BoronDriver {
+public:
+  explicit BoronDriverOpenmc(MPI_Comm comm);
+
+  ~BoronDriverOpenmc();
+  double get_boron_ppm() const override;
+  void set_k_effective(double k_eff) const override;
+  void solve_step() final;
+};
+
 //! Driver to initialize and run OpenMC in stages
 class OpenmcDriver : public NeutronicsDriver {
 public:
@@ -34,6 +44,10 @@ public:
   //! \param positions (x,y,z) coordinates to search for
   //! \return Handles to cells
   std::vector<CellHandle> find(const std::vector<Position>& position) override;
+
+  //! Set the boron concentration of the material in a cell
+  //! \param ppm Boron Concentration in [ppm]
+  void set_boron_ppm(double ppm) const override;
 
   //! Set the density of the material in a cell
   //! \param cell Handle to a cell
@@ -86,6 +100,8 @@ public:
 
   //! Runs OpenMC for one Picard iteration
   void solve_step() final;
+
+  double k_effective() const override;
 
   //! Writes OpenMC output for given timestep and iteration
   //! \param timestep timestep index
