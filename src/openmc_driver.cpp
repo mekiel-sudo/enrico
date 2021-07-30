@@ -30,6 +30,7 @@ BoronDriverOpenmc::BoronDriverOpenmc(MPI_Comm comm)
 OpenmcDriver::OpenmcDriver(MPI_Comm comm)
   : NeutronicsDriver(comm)
 {
+  timer_driver_setup.start();
   if (active()) {
     err_chk(openmc_init(0, nullptr, &comm));
   }
@@ -59,6 +60,7 @@ OpenmcDriver::OpenmcDriver(MPI_Comm comm)
       }
     }
   }
+  timer_driver_setup.stop();
 }
 
 void OpenmcDriver::create_tallies()
@@ -251,12 +253,16 @@ void BoronDriverOpenmc::solve_step()
 
 void OpenmcDriver::init_step()
 {
+  timer_init_step.start();
   err_chk(openmc_simulation_init());
+  timer_init_step.stop();
 }
 
 void OpenmcDriver::solve_step()
 {
+  timer_solve_step.start();
   err_chk(openmc_run());
+  timer_solve_step.stop();
 }
 
 double OpenmcDriver::k_effective() const
@@ -268,14 +274,18 @@ double OpenmcDriver::k_effective() const
 
 void OpenmcDriver::write_step(int timestep, int iteration)
 {
+  timer_write_step.start();
   std::string filename{"openmc_t" + std::to_string(timestep) + "_i" +
                        std::to_string(iteration) + ".h5"};
   err_chk(openmc_statepoint_write(filename.c_str(), nullptr));
+  timer_write_step.stop();
 }
 
 void OpenmcDriver::finalize_step()
 {
+  timer_finalize_step.start();
   err_chk(openmc_simulation_finalize());
+  timer_finalize_step.stop();
 }
 
 OpenmcDriver::~OpenmcDriver()

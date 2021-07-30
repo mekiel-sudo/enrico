@@ -40,6 +40,17 @@ namespace enrico {
 
 CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
   : comm_(comm)
+  , timer_init_comms(comm_)
+  , timer_init_mappings(comm_)
+  , timer_init_tallies(comm_)
+  , timer_init_volumes(comm_)
+  , timer_init_fluid_mask(comm_)
+  , timer_init_temperatures(comm_)
+  , timer_init_densities(comm_)
+  , timer_init_heat_source(comm_)
+  , timer_update_density(comm_)
+  , timer_update_heat_source(comm_)
+  , timer_update_temperature(comm_)
 {
   auto neut_node = node.child("neutronics");
   auto heat_node = node.child("heat_fluids");
@@ -49,6 +60,7 @@ CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
   power_ = coup_node.child("power").text().as_double();
   max_timesteps_ = coup_node.child("max_timesteps").text().as_int();
   max_picard_iter_ = coup_node.child("max_picard_iter").text().as_int();
+  verbose_ = coup_node.child("verbose").text().as_bool();
 
   // get optional coupling parameters, using defaults if not provided
   if (coup_node.child("epsilon"))
@@ -113,6 +125,8 @@ CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
   Expects(max_picard_iter_ >= 0);
   Expects(epsilon_ > 0);
 
+  timer_init_comms.start();
+
   // Create communicators
   std::array<int, 2> nodes{neut_node.child("nodes").text().as_int(),
                            heat_node.child("nodes").text().as_int()};
@@ -127,6 +141,8 @@ CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
 
   auto neutronics_comm = driver_comms[0];
   auto heat_comm = driver_comms[1];
+
+  timer_init_comms.stop();
 
   // Instantiate neutronics driver
   std::string neut_driver = neut_node.child_value("driver");
@@ -168,6 +184,8 @@ CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
     throw std::runtime_error{"Invalid value for <heat_fluids><driver>"};
   }
 
+  timer_init_comms.start();
+
   // Discover the rank IDs (relative to comm_) that are in each single-physics subcomm
   neutronics_ranks_ = gather_subcomm_ranks(comm_, neutronics_comm);
   heat_ranks_ = gather_subcomm_ranks(comm_, heat_comm);
@@ -179,6 +197,8 @@ CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
   // Send rank ID of heat subcomm root (relative to comm_) to all procs
   heat_root_ = this->get_heat_driver().comm_.is_root() ? comm_.rank : -1;
   MPI_Allreduce(MPI_IN_PLACE, &heat_root_, 1, MPI_INT, MPI_MAX, comm_.comm);
+
+  timer_init_comms.stop();
 
   comm_report();
 
@@ -197,6 +217,7 @@ CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
 
 void CoupledDriver::execute()
 {
+
   auto& neutronics = get_neutronics_driver();
   auto& heat = get_heat_driver();
   auto& boron = get_boron_driver();
@@ -246,6 +267,8 @@ void CoupledDriver::execute()
       update_temperature(true);
       update_density(true);
 
+      timer_report();
+
       if (is_converged()) {
         std::string msg = "converged at i_picard = " + std::to_string(i_picard_);
         comm_.message(msg);
@@ -254,6 +277,7 @@ void CoupledDriver::execute()
     }
     comm_.Barrier();
   }
+  // TODO: Is this final heat.write_step still needed?
   heat.write_step();
 }
 
@@ -310,6 +334,8 @@ bool CoupledDriver::is_converged()
 void CoupledDriver::update_heat_source(bool relax)
 {
   comm_.message("Updating heat source");
+  timer_update_heat_source.start();
+
   auto& neutronics = this->get_neutronics_driver();
   auto& heat = this->get_heat_driver();
 
@@ -359,11 +385,14 @@ void CoupledDriver::update_heat_source(bool relax)
       }
     }
   }
+  timer_update_heat_source.stop();
 }
 
 void CoupledDriver::update_temperature(bool relax)
 {
   comm_.message("Updating temperature");
+  timer_update_temperature.start();
+
   auto& neutronics = this->get_neutronics_driver();
   auto& heat = this->get_heat_driver();
 
@@ -434,11 +463,14 @@ void CoupledDriver::update_temperature(bool relax)
     auto tv = kv.second;
     neutronics.set_temperature(cell, tv / cell_V.at(cell));
   }
+  timer_update_temperature.stop();
 }
 
 void CoupledDriver::update_density(bool relax)
 {
   comm_.message("Updating density");
+  timer_update_density.start();
+
   auto& neutronics = this->get_neutronics_driver();
   auto& heat = this->get_heat_driver();
 
@@ -509,14 +541,18 @@ void CoupledDriver::update_density(bool relax)
       }
     }
   }
+
   for (const auto& kv : rho_dot_V) {
     neutronics.set_density(kv.first, kv.second / cell_V.at(kv.first));
   }
+  timer_update_density.stop();
 }
 
 void CoupledDriver::init_mappings()
 {
   comm_.message("Initializing mappings");
+  timer_init_mappings.start();
+
   const auto& heat = this->get_heat_driver();
   auto& neutronics = this->get_neutronics_driver();
 
@@ -562,21 +598,26 @@ void CoupledDriver::init_mappings()
       cells_.push_back(kv.first);
     }
   }
+  timer_init_mappings.stop();
 }
 
 void CoupledDriver::init_tallies()
 {
   comm_.message("Initializing tallies");
+  timer_init_tallies.start();
 
   auto& neutronics = this->get_neutronics_driver();
   if (neutronics.active()) {
     neutronics.create_tallies();
   }
+  timer_init_tallies.stop();
 }
 
 void CoupledDriver::init_temperatures()
 {
   comm_.message("Initializing temperatures");
+  timer_init_temperatures.start();
+
   const auto& neutronics = this->get_neutronics_driver();
   const auto& heat = this->get_heat_driver();
 
@@ -616,11 +657,14 @@ void CoupledDriver::init_temperatures()
               cell_temperatures_.end(),
               cell_temperatures_prev_.begin());
   }
+  timer_init_temperatures.stop();
 }
 
 void CoupledDriver::init_volumes()
 {
   comm_.message("Initializing volumes");
+  timer_init_volumes.start();
+
   const auto& heat = this->get_heat_driver();
   const auto& neutronics = this->get_neutronics_driver();
 
@@ -634,11 +678,12 @@ void CoupledDriver::init_volumes()
       cell_volumes_.push_back(V);
     }
   }
+  timer_init_volumes.stop();
 }
 
 void CoupledDriver::check_volumes()
 {
-  comm_.message("Initializing volumes");
+  comm_.message("Volume check");
   const auto& neutronics = this->get_neutronics_driver();
 
   // An array of global cell volumes, which will be accumulated from local cell volumes.
@@ -659,14 +704,47 @@ void CoupledDriver::check_volumes()
   comm_.Barrier();
 
   if (comm_.rank == neutronics_root_) {
+    double v_rel_diff_min = std::numeric_limits<double>::max();
+    double v_rel_diff_max = -1;
+    double v_rel_diff_sum = 0;
+    double v_rel_diff_count = 0;
+
     // Compare volume from neutron driver to accumulated volume
     for (const auto& kv : glob_volumes) {
-      auto v_neutronics = neutronics.get_volume(kv.first);
-      std::stringstream msg;
-      msg << "Cell " << neutronics.cell_label(kv.first) << ", V = " << v_neutronics
-          << " (Neutronics), " << kv.second << " (Accumulated from Heat/Fluids)";
-      comm_.message(msg.str());
+      auto cell = kv.first;
+      auto v_accum = kv.second;
+      auto v_neutronics = neutronics.get_volume(cell);
+
+      // In neutronics model, volume = 1.0 is a dummy value
+      if (v_neutronics != 1.0) {
+        auto v_diff = std::abs(v_neutronics - v_accum);
+        auto v_rel_diff = v_diff / v_neutronics;
+
+        v_rel_diff_min = std::min(v_rel_diff_min, v_rel_diff);
+        v_rel_diff_max = std::max(v_rel_diff_max, v_rel_diff);
+        v_rel_diff_sum += v_rel_diff;
+        v_rel_diff_count += 1;
+
+        if (verbose_) {
+          std::stringstream msg;
+          msg << "  Cell " << neutronics.cell_label(cell) << ", V = " << v_neutronics
+              << " (Neutronics), " << v_accum << " (Accumulated from Heat/Fluids)";
+          comm_.message(msg.str(), neutronics_root_);
+        }
+      }
     }
+
+    std::stringstream msg;
+    msg << "  Min relative volume diff:  " << v_rel_diff_min;
+    comm_.message(msg.str(), neutronics_root_);
+
+    msg.str("");
+    msg << "  Max relative volume diff:  " << v_rel_diff_max;
+    comm_.message(msg.str(), neutronics_root_);
+
+    msg.str("");
+    msg << "  Mean relative volume diff: " << v_rel_diff_sum / v_rel_diff_count;
+    comm_.message(msg.str(), neutronics_root_);
   }
   comm_.Barrier();
 }
@@ -674,6 +752,8 @@ void CoupledDriver::check_volumes()
 void CoupledDriver::init_densities()
 {
   comm_.message("Initializing densities");
+  timer_init_densities.start();
+
   const auto& neutronics = this->get_neutronics_driver();
   const auto& heat = this->get_heat_driver();
 
@@ -709,11 +789,14 @@ void CoupledDriver::init_densities()
     std::copy(
       cell_densities_.cbegin(), cell_densities_.cend(), cell_densities_prev_.begin());
   }
+  timer_init_densities.stop();
 }
 
 void CoupledDriver::init_fluid_mask()
 {
   comm_.message("Initializing cell fluid mask");
+  timer_init_fluid_mask.start();
+
   auto& heat = this->get_heat_driver();
 
   if (heat.active()) {
@@ -731,21 +814,27 @@ void CoupledDriver::init_fluid_mask()
       cell_fluid_mask_.push_back(in_fluid);
     }
   }
+  timer_init_fluid_mask.stop();
 }
 
 void CoupledDriver::init_heat_source()
 {
   comm_.message("Initializing heat source");
+  timer_init_heat_source.start();
 
   if (this->heat_fluids_driver_->active()) {
     auto sz = {cells_.size()};
     cell_heat_ = xt::empty<double>(sz);
     cell_heat_prev_ = xt::empty<double>(sz);
   }
+  timer_init_heat_source.stop();
 }
 
 void CoupledDriver::comm_report()
 {
+  if (!verbose_)
+    return;
+
   char c[_POSIX_HOST_NAME_MAX];
   gethostname(c, _POSIX_HOST_NAME_MAX);
   std::string hostname{c};
@@ -773,6 +862,58 @@ void CoupledDriver::comm_report()
     }
     MPI_Barrier(world.comm);
   }
+}
+
+void CoupledDriver::timer_report()
+{
+
+  auto& heat = this->get_heat_driver();
+  auto& neut = this->get_neutronics_driver();
+
+  std::vector<TimeAmt> coup_times{
+    {"init_comms", timer_init_comms.elapsed()},
+    {"init_fluid_mask", timer_init_fluid_mask.elapsed()},
+    {"init_densities", timer_init_densities.elapsed()},
+    {"init_heat_source", timer_init_heat_source.elapsed()},
+    {"init_mappings", timer_init_mappings.elapsed()},
+    {"init_tallies", timer_init_tallies.elapsed()},
+    {"init_temperatures", timer_init_temperatures.elapsed()},
+    {"init_volumes", timer_init_volumes.elapsed()},
+    {"update_density", timer_update_density.elapsed()},
+    {"update_heat_source", timer_update_heat_source.elapsed()},
+    {"update_temperature", timer_update_temperature.elapsed()}};
+
+  std::vector<TimeAmt> heat_times{{"driver_setup", heat.timer_driver_setup.elapsed()},
+                                  {"init_step", heat.timer_init_step.elapsed()},
+                                  {"solve_step", heat.timer_solve_step.elapsed()},
+                                  {"write_step", heat.timer_write_step.elapsed()},
+                                  {"finalize_step", heat.timer_finalize_step.elapsed()}};
+
+  std::vector<TimeAmt> neut_times{{"driver_setup", neut.timer_driver_setup.elapsed()},
+                                  {"init_step", neut.timer_init_step.elapsed()},
+                                  {"solve_step", neut.timer_solve_step.elapsed()},
+                                  {"write_step", neut.timer_write_step.elapsed()},
+                                  {"finalize_step", neut.timer_finalize_step.elapsed()}};
+
+  auto tot_time = TimeAmt::sum_times(coup_times) + TimeAmt::sum_times(heat_times) +
+                  TimeAmt::sum_times(neut_times);
+  auto nrm = [tot_time](TimeAmt& t) { t.percent = t.time / tot_time; };
+  std::for_each(coup_times.begin(), coup_times.end(), nrm);
+  std::for_each(heat_times.begin(), heat_times.end(), nrm);
+  std::for_each(neut_times.begin(), neut_times.end(), nrm);
+
+  std::stringstream msg;
+  msg << "Timer report at i_timestep = " << i_timestep_ << " , i_picard = " << i_picard_;
+  comm_.message(msg.str());
+
+  TimeAmt::print_times("CoupledDriver", coup_times, comm_);
+  TimeAmt::print_times("NeutronicsDriver", neut_times, comm_);
+  TimeAmt::print_times("HeatFluidsDriver", heat_times, comm_);
+
+  auto tot_pct = TimeAmt::sum_percent(coup_times) + TimeAmt::sum_percent(heat_times) +
+                 TimeAmt::sum_percent(neut_times);
+  std::vector<TimeAmt> total_time{{"total", tot_time, tot_pct}};
+  TimeAmt::print_times("Total", total_time, comm_);
 }
 
 } // namespace enrico
