@@ -42,6 +42,12 @@ public:
   //! Execute the coupled driver
   virtual void execute();
 
+  //! Update the k effective for the boron driver
+  void update_k_effective();
+
+  //! Update the boron concentration for the neutronics solver
+  void update_boron();
+
   //! Update the heat source for the thermal-hydraulics solver
   //!
   //! \param relax Apply relaxation to heat source before updating heat solver
@@ -73,6 +79,10 @@ public:
   //! \return reference to driver
   HeatFluidsDriver& get_heat_driver() const { return *heat_fluids_driver_; }
 
+  //! Get reference to boron search driver
+  //! \return reference to driver
+  BoronDriver& get_boron_driver() const { return *boron_driver_; }
+
   //! Get timestep iteration index
   //! \return timestep iteration index
   int get_timestep_index() const { return i_timestep_; }
@@ -90,6 +100,14 @@ public:
   Comm comm_; //!< The MPI communicator used to run the driver
 
   double power_; //!< Power in [W]
+
+  double k_eff_; //!< k-effective
+
+  double k_eff_prev_; //!< Previous k-effective
+
+  double Boron_ppm_; //!< Boron concentration
+
+  double H2Odens_; //!< Density of water in Boronated Water
 
   int max_timesteps_; //!< Maximum number of time steps
 
@@ -207,6 +225,7 @@ private:
 
   std::unique_ptr<NeutronicsDriver> neutronics_driver_;  //!< The neutronics driver
   std::unique_ptr<HeatFluidsDriver> heat_fluids_driver_; //!< The heat-fluids driver
+  std::unique_ptr<BoronDriver> boron_driver_;            //!< The boron search driver
 
   //! States whether a local cell is in the fluid region. Set only on heat/fluids ranks.
   //! Ordered the same way as cells_, cell_fluid_mask_, and cell_to_elems_
