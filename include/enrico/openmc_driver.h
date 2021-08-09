@@ -16,15 +16,38 @@
 #include <vector>
 
 namespace enrico {
-
 class BoronDriverOpenmc : public BoronDriver {
 public:
   explicit BoronDriverOpenmc(MPI_Comm comm);
 
   ~BoronDriverOpenmc();
-  double get_boron_ppm() const override;
-  void set_k_effective(double k_eff) const override;
-  void solve_step() final;
+
+  //! Gets the boron concentration and water density of the most current Openmc run and
+  //! \return Boron concentrationi in [ppm]
+  double get_boron_ppm();
+
+  //! Gets the water density of the borated water
+  //! \return Water density in [g/cm^3]
+  double get_H2O_density() const override;
+
+  //! Sets the current and previous keff in the boron driver class
+  //! \param keff is the current k-effective after the Openmc run
+  //! \param keffprev is the previous k-effective
+  void set_k_effective(double keff, double keffprev);
+
+  // void set_ppm(double ppm, double ppm_prev);
+
+  //! Estimates the boron concentration in ppm to find criticality condition
+  //! \param step is used to determine if an initial slope is needed
+  //! \return Boron concentration in [ppm]
+  double solveppm(int step);
+
+private:
+  double k_eff_;
+  double k_eff_prev;
+  double ppm_;
+  double ppm_prev_;
+  double H2O_dens_;
 };
 
 //! Driver to initialize and run OpenMC in stages
@@ -47,7 +70,7 @@ public:
 
   //! Set the boron concentration of the material in a cell
   //! \param ppm Boron Concentration in [ppm]
-  void set_boron_ppm(double ppm) const override;
+  void set_boron_ppm(double ppm, double H2Odens);
 
   //! Set the density of the material in a cell
   //! \param cell Handle to a cell

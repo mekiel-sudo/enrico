@@ -42,6 +42,12 @@ public:
   //! Execute the coupled driver
   virtual void execute();
 
+  //! Update the k effective for the boron driver
+  void update_k_effective();
+
+  //! Update the boron concentration for the neutronics solver
+  void update_boron();
+
   //! Update the heat source for the thermal-hydraulics solver
   //!
   //! \param relax Apply relaxation to heat source before updating heat solver
@@ -94,6 +100,14 @@ public:
   Comm comm_; //!< The MPI communicator used to run the driver
 
   double power_; //!< Power in [W]
+
+  double k_eff_; //!< k-effective
+
+  double k_eff_prev_; //!< Previous k-effective
+
+  double Boron_ppm_; //!< Boron concentration
+
+  double H2Odens_; //!< Density of water in Boronated Water
 
   int max_timesteps_; //!< Maximum number of time steps
 

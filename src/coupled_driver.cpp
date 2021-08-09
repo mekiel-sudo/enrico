@@ -148,6 +148,7 @@ CoupledDriver::CoupledDriver(MPI_Comm comm, pugi::xml_node node)
   std::string neut_driver = neut_node.child_value("driver");
   if (neut_driver == "openmc") {
     neutronics_driver_ = std::make_unique<OpenmcDriver>(neutronics_comm.comm);
+    boron_driver_ = std::make_unique<BoronDriverOpenmc>(comm);
   } else if (neut_driver == "shift") {
 #ifdef USE_SHIFT
     neutronics_driver_ = std::make_unique<ShiftDriver>(comm, neut_node);
@@ -241,11 +242,20 @@ void CoupledDriver::execute()
 
       comm_.Barrier();
 
+      update_k_effective();
       // Boron Criticality search
       if (boron.active()) {
-        boron.solve_step();
+        if (i_picard_ == 0) {
+          k_eff_prev_ = k_eff_;
+
+          boron.set_k_effective(k_eff_, k_eff_prev_);
+        }
+        Boron_ppm_ = boron.solveppm(i_picard_);
       }
+      update_boron();
+
       comm_.Barrier();
+
       // Update heat source.
       // On the first iteration, there is no previous iterate of heat source,
       // so we can't apply underrelaxation at that point
@@ -330,6 +340,38 @@ bool CoupledDriver::is_converged()
   comm_.message(msg.str());
   return converged;
 }
+
+void CoupledDriver::update_k_effective()
+{
+  comm_.message("Updating k effective");
+  auto& neutronics = this->get_neutronics_driver();
+  auto& boron = this->get_boron_driver();
+
+  k_eff_prev_ = k_eff_;
+
+  if (neutronics.active()) {
+    k_eff_ = neutronics.k_effective();
+  }
+
+  if (boron.active()) {
+    boron.set_k_effective(k_eff_, k_eff_prev_);
+    Boron_ppm_ = boron.get_boron_ppm();
+    H2Odens_ = boron.get_H2O_density();
+  }
+};
+
+void CoupledDriver::update_boron()
+{
+  comm_.message("Updating Boron");
+  auto& neutronics = this->get_neutronics_driver();
+  auto& boron = this->get_boron_driver();
+
+  if (boron.active()) {
+  }
+  if (neutronics.active()) {
+    neutronics.set_boron_ppm(Boron_ppm_, H2Odens_);
+  }
+};
 
 void CoupledDriver::update_heat_source(bool relax)
 {

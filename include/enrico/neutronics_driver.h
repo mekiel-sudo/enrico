@@ -20,14 +20,25 @@ public:
   explicit BoronDriver(MPI_Comm comm)
     : Driver(comm)
   {}
-
   virtual ~BoronDriver() = default;
 
-  virtual double get_boron_ppm() const = 0;
-  virtual void set_k_effective(double k_eff) const = 0;
+  //! Gets the boron concentration and water density of the most current Openmc run and
+  //! \return Boron concentrationi in [ppm]
+  virtual double get_boron_ppm() = 0;
 
-  //! Runs OpenMC for one Picard iteration
-  // void solve_step() final;
+  //! Gets the water density of the borated water
+  //! \return Water density in [g/cm^3]
+  virtual double get_H2O_density() const = 0;
+
+  //! Sets the current and previous keff in the boron driver class
+  //! \param keff is the current k-effective after the Openmc run
+  //! \param keffprev is the previous k-effective
+  virtual void set_k_effective(double keff, double keffprev) = 0;
+
+  //! Estimates the boron concentration in ppm to find criticality condition
+  //! \param step is used to determine if an initial slope is needed
+  //! \return Boron concentration in [ppm]
+  virtual double solveppm(int step) = 0;
 };
 
 //! Base class for driver that controls a neutronics solve
@@ -48,7 +59,7 @@ public:
   virtual double k_effective() const = 0;
 
   //! Set the boron concentration in a cell
-  virtual void set_boron_ppm(double ppm) const = 0;
+  virtual void set_boron_ppm(double ppm, double H2Odens) = 0;
 
   //! Find cells corresponding to a vector of positions
   //! \param positions (x,y,z) coordinates to search for
