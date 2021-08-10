@@ -107,6 +107,8 @@ public:
 
   double Boron_ppm_; //!< Boron concentration
 
+  double Boron_ppm_prev_; //!< Previous Boron Concentration
+
   double H2Odens_; //!< Density of water in Boronated Water
 
   int max_timesteps_; //!< Maximum number of time steps

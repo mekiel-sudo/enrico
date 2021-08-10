@@ -35,7 +35,7 @@ public:
   //! \param keffprev is the previous k-effective
   void set_k_effective(double keff, double keffprev);
 
-  // void set_ppm(double ppm, double ppm_prev);
+  void set_ppm(double ppm, double ppm_prev);
 
   //! Estimates the boron concentration in ppm to find criticality condition
   //! \param step is used to determine if an initial slope is needed

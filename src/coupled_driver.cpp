@@ -367,6 +367,8 @@ void CoupledDriver::update_boron()
   auto& boron = this->get_boron_driver();
 
   if (boron.active()) {
+    Boron_ppm_prev_ = boron.get_boron_ppm();
+    boron.set_ppm(Boron_ppm_, Boron_ppm_prev_);
   }
   if (neutronics.active()) {
     neutronics.set_boron_ppm(Boron_ppm_, H2Odens_);

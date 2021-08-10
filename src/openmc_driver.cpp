@@ -337,7 +337,7 @@ double BoronDriverOpenmc::get_boron_ppm()
     ppm = 0;
   }
   ppm_ = ppm;
-  ppm_prev_ = ppm;
+
   H2O_dens_ = densH2O_avg;
 
   std::cout << "Boron Concentration [ppm]: " << ppm << std::endl;
@@ -350,6 +350,12 @@ void BoronDriverOpenmc::set_k_effective(double keff, double keffprev)
 {
   k_eff_prev = keffprev;
   k_eff_ = keff;
+}
+
+void BoronDriverOpenmc::set_ppm(double ppm, double ppm_prev)
+{
+  ppm_ = ppm_prev;
+  ppm_prev_ = ppm_prev;
 }
 
 double BoronDriverOpenmc::get_H2O_density() const
