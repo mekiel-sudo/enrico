@@ -8,6 +8,7 @@
 #include "openmc/constants.h"
 #include "openmc/nuclide.h"
 #include "openmc/simulation.h"
+#include "openmc/summary.h"
 #include "openmc/tallies/filter.h"
 #include "openmc/tallies/filter_material.h"
 #include "openmc/tallies/tally.h"
@@ -20,12 +21,6 @@
 #include <unordered_map>
 
 namespace enrico {
-
-BoronDriverOpenmc::BoronDriverOpenmc(MPI_Comm comm)
-  : BoronDriver(comm)
-{
-  MPI_Barrier(MPI_COMM_WORLD);
-}
 
 OpenmcDriver::OpenmcDriver(MPI_Comm comm)
   : NeutronicsDriver(comm)
@@ -149,7 +144,7 @@ std::vector<CellHandle> OpenmcDriver::find(const std::vector<Position>& position
   return handles;
 }
 
-void OpenmcDriver::set_boron_ppm(double ppm, double H2Odens)
+void OpenmcDriver::set_boron_ppm(double ppm, double H2Odens) const
 {
   for (auto& mat : openmc::model::materials) {
     auto nucs = mat->nuclides();
@@ -241,7 +236,7 @@ gsl::index OpenmcDriver::cell_index(CellHandle cell) const
   return std::distance(cells_.cbegin(), iter);
 }
 
-double BoronDriverOpenmc::get_boron_ppm()
+double OpenmcDriver::get_boron_ppm() const
 {
   int j = 0;
   int m = 0;
@@ -334,39 +329,71 @@ double BoronDriverOpenmc::get_boron_ppm()
   ppm = densB_avg / (densB_avg + densH2O_avg) * 1.0E+6;
   if (j == 0) {
     ppm = 0;
+  };
+
+  return ppm;
+}
+
+double OpenmcDriver::get_H2O_dens() const
+{
+  int m = 0;
+  double densH1 = 0;
+  double densH2 = 0;
+  double densO16 = 0;
+  double densO17 = 0;
+  double densH2O_avg = 0;
+
+  for (auto& mat : openmc::model::materials) {
+    auto nucs = mat->nuclides();
+    auto densities = mat->densities();
+    auto name = mat->name();
+    auto id = mat->id();
+
+    double H1, H2, O16, O17;
+    double test;
+
+    for (int i = 0; i < nucs.size(); i++) {
+      int nuc_index = nucs[i];
+      auto& nuclide = openmc::data::nuclides[nuc_index];
+      double awr = openmc::data::nuclides[nuc_index]->awr_;
+
+      if (nuclide->Z_ == 1) {
+        if (nuclide->A_ == 1) {
+          H1 = densities[i] * (awr)*openmc::MASS_NEUTRON / openmc::N_AVOGADRO;
+        }
+        if (nuclide->A_ == 2) {
+          H2 = densities[i] * (awr)*openmc::MASS_NEUTRON / openmc::N_AVOGADRO;
+        }
+      }
+      if (nuclide->Z_ == 8) {
+        if (nuclide->A_ == 16) {
+          O16 = densities[i] * (awr)*openmc::MASS_NEUTRON / openmc::N_AVOGADRO;
+        }
+        if (nuclide->A_ == 17) {
+
+          O17 = densities[i] * (awr)*openmc::MASS_NEUTRON / openmc::N_AVOGADRO;
+        }
+      }
+    }
+    // assume elemental boron
+    if (O16 > 0 || O17 > 0) {
+      double tests = (H1 + H2) / (O16 + O17);
+      tests = abs((2.0 - tests) / 2.0) * 100;
+      if (tests < 5.0) {
+        m = m + 1;
+        densH1 = densH1 + H1;
+        densH2 = densH2 + H2;
+        densO16 = densO16 + O16;
+        densO17 = densO17 + O17;
+      }
+      H1 = 0.0, H2 = 0, O16 = 0.0, O17 = 0.0;
+      tests = 100.0;
+    }
   }
-  ppm_ = ppm;
-  ppm_prev_ = ppm;
-  H2O_dens_ = densH2O_avg;
 
-  std::cout << "Boron Concentration [ppm]: " << ppm << std::endl;
-  std::cout << "Water Density [g/cm^3]   : " << densH2O_avg << std::endl;
+  densH2O_avg = (densH1 + densH2 + densO16 + densO17) / m;
 
-  return ppm_;
-}
-
-void BoronDriverOpenmc::set_k_effective(double keff, double keffprev)
-{
-  k_eff_prev = keffprev;
-  k_eff_ = keff;
-}
-
-double BoronDriverOpenmc::get_H2O_density() const
-
-{
-  return H2O_dens_;
-}
-
-double BoronDriverOpenmc::solveppm(int step)
-{
-  double m;
-  m = (ppm_ - ppm_prev_) / (k_eff_ - k_eff_prev);
-  if (step == 0) {
-    m = -15363.4365923065;
-  }
-  ppm_ = (1.000 - k_eff_prev) * m + ppm_prev_;
-
-  return ppm_;
+  return densH2O_avg;
 }
 
 void OpenmcDriver::init_step()
@@ -383,7 +410,7 @@ void OpenmcDriver::solve_step()
   timer_solve_step.stop();
 }
 
-double OpenmcDriver::k_effective() const
+double OpenmcDriver::get_k_effective() const
 {
   double keff[2];
   openmc_get_keff(keff);
@@ -393,9 +420,13 @@ double OpenmcDriver::k_effective() const
 void OpenmcDriver::write_step(int timestep, int iteration)
 {
   timer_write_step.start();
-  std::string filename{"openmc_t" + std::to_string(timestep) + "_i" +
-                       std::to_string(iteration) + ".h5"};
+  std::string suffix{"_t" + std::to_string(timestep) + "_i" + std::to_string(iteration) +
+                     ".h5"};
+  std::string filename{"openmc" + suffix};
   err_chk(openmc_statepoint_write(filename.c_str(), nullptr));
+
+  std::string prop_file{"properties" + suffix};
+  err_chk(openmc_properties_export(prop_file.c_str()));
   timer_write_step.stop();
 }
 
@@ -414,9 +445,4 @@ OpenmcDriver::~OpenmcDriver()
   MPI_Barrier(MPI_COMM_WORLD);
 }
 
-BoronDriverOpenmc::~BoronDriverOpenmc()
-{
-
-  MPI_Barrier(MPI_COMM_WORLD);
-}
 } // namespace enrico
