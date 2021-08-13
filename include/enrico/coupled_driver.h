@@ -4,6 +4,7 @@
 #ifndef ENRICO_COUPLED_DRIVER_H
 #define ENRICO_COUPLED_DRIVER_H
 
+#include "enrico/boron_driver.h"
 #include "enrico/driver.h"
 #include "enrico/heat_fluids_driver.h"
 #include "enrico/neutronics_driver.h"
@@ -117,6 +118,8 @@ public:
 
   //! Picard iteration convergence tolerance, defaults to 1e-3 if not set
   double epsilon_{1e-3};
+
+  std::string boron_search{"no"};
 
   //! Constant relaxation factor for the heat source,
   //! defaults to 1.0 (standard Picard) if not set
